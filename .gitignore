@@ -17,3 +17,17 @@ terraform.tfstate*
 .DS_Store
 all.txt
 all.txt
+# env
+.env
+
+# python
+__pycache__/
+*.pyc
+
+# notebooks
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
