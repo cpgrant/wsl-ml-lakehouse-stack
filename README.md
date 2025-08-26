@@ -1,13 +1,15 @@
 # WSL ML Lakehouse Stack
 
-Docker Compose stack for a local lakehouse lab:
-- **MinIO** (S3), **Spark 3.5**, **Ray 2.x**, **Kafka 3.7 (KRaft)**,
-- **Airflow 2.9 (CeleryExecutor)**, **dbt Core**, **Apache Beam**, **Terraform**,
-- plus **Jupyter (PySpark)** and a **full smoketest suite**.
+A one-command local lakehouse: MinIO (S3), Spark 3.5, Ray 2.x, Kafka, Airflow 2.9, dbt Core, Apache Beam, Terraform, and a Jupyter PySpark notebook.
+
+## Prereqs
+- Docker Desktop (with WSL2 backend)
+- Git + GitHub CLI (optional)
+- Bash
 
 ## Quickstart
 ```bash
-cp .env.example .env
+cp .env.example .env             # then edit as needed
 docker compose pull
 docker compose up -d
 ./smoketest_01_containers.sh
