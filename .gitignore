@@ -1,23 +1,4 @@
-# local/env
-.env
-*.env
-.env.*
-
-# notebooks & caches
-.ipynb_checkpoints/
-__pycache__/
-
-# terraform (if you run outside container)
-terraform.tfstate*
-.terraform/
-.terraform.lock.hcl
-
-# editor junk
-.vscode/
-.DS_Store
-all.txt
-all.txt
-# env
+# local env
 .env
 
 # python
@@ -27,7 +8,7 @@ __pycache__/
 # notebooks
 .ipynb_checkpoints/
 
-# OS/editor
+# editors/OS
 .DS_Store
 .vscode/
 .idea/
