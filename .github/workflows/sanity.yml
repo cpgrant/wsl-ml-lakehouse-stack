@@ -1,0 +1,17 @@
+name: sanity
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose config
+        run: docker compose -f docker-compose.yml config > /dev/null
+      - name: Bash syntax check
+        run: |
+          set -e
+          shopt -s nullglob
+          bash -n smoketest_*.sh scripts/*.sh || exit 1
