@@ -1,0 +1,28 @@
+# --- secrets ---
+.env
+
+# --- python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+
+# --- notebooks ---
+.ipynb_checkpoints/
+
+# --- airflow ---
+airflow/logs/
+airflow/plugins/__pycache__/
+
+# --- terraform (if created locally) ---
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+
+# --- editors/OS ---
+.vscode/
+.idea/
+.DS_Store
+*.log

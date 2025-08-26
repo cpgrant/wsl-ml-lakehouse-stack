@@ -1,0 +1,51 @@
+docker compose up -d minio
+docker compose run --rm minio-mc true   # optional; it will idle after creating bucket
+docker compose up -d kafka
+docker compose up -d spark-master
+docker compose up -d spark-worker
+docker compose up -d ray-head
+docker compose up -d airflow-db airflow-redis
+docker compose up -d airflow
+docker compose up -d pydev dbt terraform beam
+
+
+#Minio
+docker compose run --rm minio-mc sh -lc \
+  "mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD && \
+   mc mb -p local/$MINIO_BUCKET || true && \
+   mc ls local"
+
+
+
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin123
+
+minioadmin
+minioadmin123
+
+# set alias (if not already set in your command)
+mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+
+# create the bucket named data
+mc mb -p local/data
+
+# list buckets to verify
+mc ls local
+
+
+#Kafka
+docker compose rm -sf kafka
+docker compose up -d kafka
+docker compose logs -f kafka | tail -n 200
+
+# inside the Compose network, use kafka:9092
+docker compose exec -T kafka kafka-topics.sh \
+  --bootstrap-server kafka:9092 --create --if-not-exists --topic events
+
+# produce a test message
+docker compose exec -T kafka kafka-console-producer.sh \
+  --bootstrap-server kafka:9092 --topic events <<< '{"message":"hello"}'
+
+# (optional) list topics
+docker compose exec -T kafka kafka-topics.sh \
+  --bootstrap-server kafka:9092 --list

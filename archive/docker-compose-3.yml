@@ -1,0 +1,255 @@
+# docker-compose.yml
+
+x-common-env: &common_env
+  TZ: ${TZ}
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_CACHE_DIR: "1"
+
+services:
+  # -------------------- MinIO (S3-compatible object store) --------------------
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks: [data]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 50
+
+  # one-shot init job (will exit 0 and stay stopped)
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["sh","-lc"]
+    command: |
+      set -e
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+      mc mb -p local/${MINIO_BUCKET} || true
+      echo "MinIO ready; bucket '${MINIO_BUCKET}' ensured."
+    networks: [data]
+    restart: "no"
+
+
+
+  # ------------------------------ Kafka (KRaft) -------------------------------
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_KRAFT_CLUSTER_ID=abcdefghijklmnopqrstuv
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_NUM_PARTITIONS=1
+    ports:
+      - "29092:9092"   # host:container
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks: [data]
+    restart: unless-stopped
+
+  # ------------------------------ Spark (3.5.x) -------------------------------
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_NO_DAEMONIZE=true
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+      - SPARK_JARS_PACKAGES=io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_S3_ENDPOINT=http://minio:9000
+      - AWS_S3_ALLOW_UNSAFE_RENAME=true
+      - PYSPARK_PYTHON=python3
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - workspace:/workspace
+    networks: [data]
+    restart: unless-stopped
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    depends_on: [spark-master]
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_WEBUI_PORT=8081
+      - SPARK_JARS_PACKAGES=io.delta:delta-spark_2.12:3.2.0,org.apache.hadoop:hadoop-aws:3.3.4
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}
+      - AWS_S3_ENDPOINT=http://minio:9000
+      - AWS_REGION=${AWS_REGION}
+      - PYSPARK_PYTHON=python3
+    ports:
+      - "8081:8081"
+    volumes:
+      - workspace:/workspace
+    networks: [data]
+    restart: unless-stopped
+
+  # ------------------------------- Ray (2.x) ----------------------------------
+  ray-head:
+    image: rayproject/ray:2.48.0-py311
+    container_name: ray-head
+    command: ["bash","-lc","ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 --ray-client-server-port=10001 --num-cpus=2 --block"]
+    ports:
+      - "8265:8265"
+      - "10001:10001"
+    shm_size: 10gb
+    restart: unless-stopped
+    networks: [data]
+
+
+  ray-worker:
+    image: rayproject/ray:2.48.0-py311
+    container_name: ray-worker
+    depends_on: [ray-head]
+    command: >
+      bash -lc "
+      rm -rf /tmp/ray/session_* ~/.ray/session_* || true;
+      ray start --address='ray-head:6379' --num-cpus=2 --block
+      "
+    shm_size: 10gb
+    restart: unless-stopped
+    networks: [data]
+
+  # ------------------------------- Airflow 2 ----------------------------------
+  airflow-db:
+    image: postgres:16
+    container_name: airflow-db
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db:/var/lib/postgresql/data
+    networks: [data]
+    restart: unless-stopped
+
+  airflow-redis:
+    image: redis:7
+    container_name: airflow-redis
+    networks: [data]
+    restart: unless-stopped
+
+  airflow:
+    image: apache/airflow:2.9.3-python3.11
+    container_name: airflow
+    depends_on: [airflow-db, airflow-redis]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://airflow-redis:6379/0
+      AIRFLOW__WEBSERVER__RBAC: "true"
+      _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-apache-spark apache-airflow-providers-apache-kafka apache-airflow-providers-amazon==8.12.0 delta-spark==3.2.0"
+      AIRFLOW_UID: ${AIRFLOW_UID}
+      <<: *common_env
+    user: "${AIRFLOW_UID}:0"
+    command: ["bash","-c","airflow db upgrade && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true && airflow webserver & airflow scheduler"]
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - workspace:/workspace
+    ports:
+      - "8085:8080"
+    networks: [data]
+    restart: unless-stopped
+
+  # -------------------------------- dbt Core ----------------------------------
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-core:1.8.7
+    container_name: dbt
+    working_dir: /workspace/dbt
+    entrypoint: ["tail","-f","/dev/null"]
+    volumes:
+      - workspace:/workspace
+    networks: [data]
+    restart: unless-stopped
+
+  # ------------------------------- Terraform ----------------------------------
+  terraform:
+    image: hashicorp/terraform:1.9
+    container_name: terraform
+    working_dir: /workspace/infra
+    entrypoint: ["tail","-f","/dev/null"]
+    volumes:
+      - workspace:/workspace
+    networks: [data]
+    restart: unless-stopped
+
+  # --------------------------------- Beam -------------------------------------
+  beam:
+    image: apache/beam_python3.11_sdk:2.57.0
+    container_name: beam
+    working_dir: /workspace/beam
+    entrypoint: ["tail","-f","/dev/null"]
+    volumes:
+      - workspace:/workspace
+    networks: [data]
+    restart: unless-stopped
+
+  # ------------------------------- PyDev (Jupyter) -----------------------------
+  pydev:
+    image: quay.io/jupyter/pyspark-notebook:spark-3.5.3
+    container_name: pydev
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_REGION: ${AWS_REGION}
+      AWS_S3_ENDPOINT: http://minio:9000
+      PYSPARK_PYTHON: python3
+    ports:
+      - "8888:8888"
+    command: >
+      bash -c "
+      pip install pyspark==3.5.3 delta-spark==3.2.0 &&
+      start-notebook.sh --NotebookApp.token=${JUPYTER_TOKEN} --NotebookApp.password='' --NotebookApp.allow_origin='*'
+      "
+    volumes:
+      - workspace:/home/jovyan/work
+    networks: [data]
+    restart: unless-stopped
+
+
+networks:
+  data:
+    driver: bridge
+
+volumes:
+  workspace:
+  minio_data:
+  airflow_db:
+  kafka_data:
