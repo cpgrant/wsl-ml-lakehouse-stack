@@ -1,28 +1,17 @@
-# --- secrets ---
+# local/env
 .env
+*.env
+.env.*
 
-# --- python ---
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
-.venv/
-
-# --- notebooks ---
+# notebooks & caches
 .ipynb_checkpoints/
+__pycache__/
 
-# --- airflow ---
-airflow/logs/
-airflow/plugins/__pycache__/
+# terraform (if you run outside container)
+terraform.tfstate*
+.terraform/
+.terraform.lock.hcl
 
-# --- terraform (if created locally) ---
-infra/.terraform/
-infra/*.tfstate
-infra/*.tfstate.*
-
-# --- editors/OS ---
+# editor junk
 .vscode/
-.idea/
 .DS_Store
-*.log
