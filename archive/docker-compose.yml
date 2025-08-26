@@ -44,8 +44,6 @@ services:
     networks: [data]
     restart: "no"
 
-
-
   # ------------------------------ Kafka (KRaft) -------------------------------
   kafka:
     image: bitnami/kafka:3.7
@@ -64,7 +62,7 @@ services:
       - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - KAFKA_CFG_NUM_PARTITIONS=1
     ports:
-      - "29092:9092"   # host:container
+      - "29092:9092"
     volumes:
       - kafka_data:/bitnami/kafka
     networks: [data]
@@ -130,7 +128,6 @@ services:
     restart: unless-stopped
     networks: [data]
 
-
   ray-worker:
     image: rayproject/ray:2.48.0-py311
     container_name: ray-worker
@@ -152,6 +149,11 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     volumes:
       - airflow_db:/var/lib/postgresql/data
     networks: [data]
@@ -166,18 +168,38 @@ services:
   airflow:
     image: apache/airflow:2.9.3-python3.11
     container_name: airflow
-    depends_on: [airflow-db, airflow-redis]
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      airflow-redis:
+        condition: service_started
     environment:
-      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CELERY__BROKER_URL: redis://airflow-redis:6379/0
       AIRFLOW__WEBSERVER__RBAC: "true"
       AIRFLOW_UID: ${AIRFLOW_UID}
+      # make sure the venv bin is first
+      PATH: "/opt/airflow/.venv/bin:/home/airflow/.local/bin:/usr/local/bin:/usr/bin:/bin"
       <<: *common_env
-    user: "${AIRFLOW_UID}:0"
-    command: ["bash","-c","airflow db upgrade && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true && airflow webserver & airflow scheduler"]
+    # user: "${AIRFLOW_UID}:0"   # keep commented unless you need it
+    command: >
+      bash -lc '
+        set -euo pipefail
+        if ! command -v airflow >/dev/null 2>&1; then
+          echo "FATAL: airflow not found on PATH=$PATH"; ls -la /opt/airflow/.venv/bin || true; exit 1
+        fi
+        # initialize / migrate DB for a fresh or existing metadata DB
+        airflow db migrate || airflow db init
+        # ensure admin user (idempotent)
+        airflow users create --username admin --password admin \
+          --firstname Admin --lastname User --role Admin --email admin@example.com || true
+        # start webserver + scheduler
+        airflow webserver --port 8080 &
+        exec airflow scheduler
+      '
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - workspace:/workspace
@@ -185,6 +207,7 @@ services:
       - "8085:8080"
     networks: [data]
     restart: unless-stopped
+
 
   # -------------------------------- dbt Core ----------------------------------
   dbt:
@@ -248,7 +271,6 @@ services:
       - workspace:/home/jovyan/work
     networks: [data]
     restart: unless-stopped
-
 
 networks:
   data:
