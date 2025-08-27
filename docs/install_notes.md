@@ -1,37 +1,54 @@
+Got it 👍 — here’s a **recreated full Install Guide** with crawler support integrated, clean and self-contained:
+
+---
+
 # Install Guide — WSL2 on Windows 11
 
-This document walks you from a clean Windows 11 + WSL2 setup to a running **ML Lakehouse Stack** (Ray, Spark, Kafka, MinIO, Airflow, dbt, Beam, Terraform, Jupyter/PySpark). It also includes smoke tests, common fixes, and day‑2 ops.
+This guide takes you from a clean Windows 11 + WSL2 setup to a running **ML Lakehouse Stack** with:
+**Ray, Spark, Kafka, MinIO, Airflow, dbt, Beam, Terraform, Jupyter/PySpark, and a demo Crawler.**
 
-> **Tested on:** Windows 11 + WSL2 (Ubuntu 22.04), Docker Desktop WSL backend, Compose v2.  
-> **Default ports:** MinIO 9000/9001, Ray 8265, Spark 7077/8080/8081, Airflow 8085, Kafka 29092, Jupyter 8888.
+It also includes smoke tests, troubleshooting, and day-2 ops.
+
+> **Tested on:** Windows 11 + WSL2 (Ubuntu 22.04), Docker Desktop WSL backend, Compose v2
+> **Default ports:** MinIO 9000/9001, Ray 8265, Spark 7077/8080/8081, Airflow 8085, Kafka 29092, Jupyter 8888
 
 ---
 
 ## 0) Requirements
 
-- **Windows 11** (22H2 or newer) with **WSL2** enabled.
-- **Ubuntu** distro in WSL (recommend **Ubuntu 22.04 LTS**).
-- **Docker Desktop** for Windows ≥ 4.34 with **WSL2 backend**.
-  - Settings → **General**: enable *Use the WSL 2 based engine*.
-  - Settings → **Resources → WSL Integration**: enable your Ubuntu distro.
-  - (Optional GPU) Settings → **Resources**: enable **GPU** support if you have an NVIDIA GPU.
-- **NVIDIA GPU (optional)**: Install the latest Windows NVIDIA driver (R535+). Verify in **PowerShell**:
-  - `nvidia-smi`
-  - In WSL: `nvidia-smi` should also work when GPU passthrough is available. In Docker: `docker run --rm --gpus all nvidia/cuda:12.4.1-base nvidia-smi`.
-- **Allow firewall prompts**: When Windows Security prompts for Docker/WSL networking, allow on **Private networks**.
-- **Disk space**: ~10–15 GB free recommended for images + data.
+* **Windows 11** (22H2 or newer) with **WSL2** enabled
+* **Ubuntu** distro in WSL (recommend **Ubuntu 22.04 LTS**)
+* **Docker Desktop** for Windows ≥ 4.34 with **WSL2 backend**
 
-> **Performance tip:** Clone and run the repo **inside** the Linux filesystem (e.g., `/home/<user>/...`) rather than under `C:\` (`/mnt/c/...`) for faster I/O with Docker/WSL.
+  * Settings → **General** → enable *Use the WSL 2 based engine*
+  * Settings → **Resources → WSL Integration** → enable your Ubuntu distro
+  * (Optional GPU) Settings → **Resources** → enable **GPU support**
+* **NVIDIA GPU (optional)**
+
+  * Install latest Windows driver (R535+)
+  * Verify in PowerShell: `nvidia-smi`
+  * In WSL: `nvidia-smi` should also work
+  * In Docker:
+
+    ```bash
+    docker run --rm --gpus all nvidia/cuda:12.4.1-base nvidia-smi
+    ```
+* **Allow firewall prompts** when Windows Security asks → allow for **Private networks**
+* **Disk space**: \~10–15 GB recommended for images + data
+
+> **Performance tip**: Clone/run the repo **inside** the Linux filesystem (`/home/<user>/…`) instead of `/mnt/c/...` for faster I/O.
 
 ---
 
-## 1) First‑time system prep (inside WSL Ubuntu)
+## 1) First-time system prep (inside WSL Ubuntu)
+
+Install base tools:
 
 ```bash
 sudo apt update && sudo apt install -y git curl ca-certificates jq
 ```
 
-Clone the repository to a Linux path, e.g.:
+Clone the repository:
 
 ```bash
 mkdir -p ~/dockerprojects && cd ~/dockerprojects
@@ -39,27 +56,28 @@ git clone <YOUR_REPO_URL> wsl-ml-lakehouse-stack
 cd wsl-ml-lakehouse-stack
 ```
 
-Copy the example environment and **edit values** (no quotes, no command substitution):
+Copy example environment and edit:
 
 ```bash
 cp .env.example .env
-# Append/ensure these (adjust as needed)
+
 cat >> .env <<'ENV'
 COMPOSE_PROJECT_NAME=wsl-ml-lakehouse-stack
 TZ=Europe/Copenhagen
 AWS_REGION=eu-north-1
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
-MINIO_BUCKET=lakehouse
-# Optional: set a fixed Jupyter token so you don't hunt logs
+MINIO_BUCKET=crawl
+# Optional Jupyter token
 JUPYTER_TOKEN=letmein123
 ENV
 
-# Ensure LF line endings (avoid CRLF)
+# Ensure LF endings
 sed -i 's/\r$//' .env
 ```
 
-**Important:** `.env` must be plain `KEY=VALUE` pairs. **Do not** use `"$(id -u)"`, quotes, or shell expressions.
+**Important**: `.env` must be plain `KEY=VALUE`.
+No quotes, no `$(id -u)`, no CRLF.
 
 ---
 
@@ -67,49 +85,44 @@ sed -i 's/\r$//' .env
 
 ```bash
 docker compose pull
-# If you previously tried to run parts of the stack:
 docker compose down --remove-orphans || true
-
 docker compose up -d --remove-orphans
-
-docker compose ps   # wait for (healthy) where defined
+docker compose ps   # wait for (healthy)
 ```
-
-If you see any warnings about missing env vars, add them to `.env` and re‑run `docker compose up -d`.
 
 ---
 
 ## 3) Reach the UIs
 
-- **MinIO**: http://localhost:9001  
-  Login: `minioadmin / minioadmin`
-- **Ray Dashboard**: http://localhost:8265
-- **Spark Master UI**: http://localhost:8080
-- **Spark Worker UI**: http://localhost:8081
-- **Airflow Web**: http://localhost:8085  
-  Create an admin, if not already created:
+* **MinIO**: [http://localhost:9001](http://localhost:9001) (login: `minioadmin / minioadmin`)
+* **Ray Dashboard**: [http://localhost:8265](http://localhost:8265)
+* **Spark Master UI**: [http://localhost:8080](http://localhost:8080)
+* **Spark Worker UI**: [http://localhost:8081](http://localhost:8081)
+* **Airflow**: [http://localhost:8085](http://localhost:8085)
+
   ```bash
   docker compose exec airflow airflow users create \
     --username admin --firstname Admin --lastname User \
     --role Admin --email admin@example.com --password admin
   ```
-- **Jupyter (pydev)**: http://localhost:8888  
-  If you didn’t set `JUPYTER_TOKEN`, discover it:
+* **Jupyter (pydev)**: [http://localhost:8888](http://localhost:8888)
+  If token not set, get it:
+
   ```bash
   docker compose exec pydev jupyter server list
   ```
 
 ---
 
-## 4) Run smoke tests (recommended)
+## 4) Run smoke tests
 
-All at once:
+Run all:
 
 ```bash
 ./smoketests_all.sh
 ```
 
-Individually (examples):
+Run individual:
 
 ```bash
 ./smoketest_01_containers.sh
@@ -122,6 +135,7 @@ Individually (examples):
 ./smoketest_08_beam.sh
 ./smoketest_09_terraform.sh
 ./smoketest_10_delta_minio.sh
+./smoketest_11_crawler.sh
 ```
 
 You should see ✅ for each.
@@ -130,14 +144,12 @@ You should see ✅ for each.
 
 ## 5) Quick demo: Kafka ➜ Delta on MinIO
 
-**Terminal A — produce a few messages**
+**Terminal A — produce messages**
 
 ```bash
 docker compose exec kafka /opt/bitnami/kafka/bin/kafka-console-producer.sh \
   --broker-list kafka:9092 --topic smoketest
-# type a couple lines, then Ctrl+C
-hello
-world
+# type a few lines then Ctrl+C
 ```
 
 **Terminal B — Spark Structured Streaming to Delta**
@@ -155,7 +167,6 @@ spark = (SparkSession.builder
           "com.amazonaws:aws-java-sdk-bundle:1.12.698")
   .getOrCreate())
 
-# S3A creds for MinIO
 hconf = spark.sparkContext._jsc.hadoopConfiguration()
 hconf.set("fs.s3a.endpoint", "http://minio:9000")
 hconf.set("fs.s3a.access.key", "minioadmin")
@@ -175,12 +186,12 @@ query = (df.writeStream
    .option("checkpointLocation","s3a://smoketest-bucket/delta/checkpoints/smoketest")
    .start("s3a://smoketest-bucket/delta/streams/smoketest"))
 
-print("Streaming... press Ctrl+C to stop")
+print("Streaming... Ctrl+C to stop")
 query.awaitTermination()
 PY
 ```
 
-**Verify written data (another shell):**
+**Verify written data**
 
 ```bash
 docker compose exec -T pydev python - <<'PY'
@@ -193,83 +204,96 @@ PY
 
 ---
 
-## 6) Troubleshooting
+## 6) Crawler demo
 
-**A. Container name conflicts**  
-Error: `The container name "/spark-master" is already in use...`
-- Cause: hard‑coded `container_name:` or leftovers from prior runs.
-- Fix:
-  ```bash
-  for n in spark-master spark-worker kafka minio airflow airflow-db airflow-redis pydev terraform ray-head ray-worker dbt beam; do
-    docker rm -f "$n" 2>/dev/null && echo "Removed $n"
-  done
-  # Prefer removing any `container_name:` lines from docker-compose.yml
-  ```
+The stack includes a minimal async **crawler** that writes JSONL docs (`url`, `title`, `depth`, `ts`) to MinIO.
 
-**B. `.env` parse error**  
-Error mentions quotes or `$(id -u)`.
-- Fix: ensure plain `KEY=VALUE` (no quotes/shell). Remove CRLF:
-  ```bash
-  sed -i 's/\r$//' .env
-  ```
+### One-off run
 
-**C. Ports already in use**  
-Examples: 8080/8081/8085/8265/8888/9000/9001/29092.
-- Find blockers: `sudo lsof -i :8080` or `netstat -ano | findstr :8080` (in PowerShell).
-- Stop the app using the port, or adjust mapped port in `docker-compose.yml`.
+```bash
+docker compose build crawler
+docker compose run --rm \
+  -e SEEDS="https://quotes.toscrape.com" \
+  -e ALLOWED_DOMAINS="quotes.toscrape.com" \
+  -e MAX_PAGES=20 -e MAX_DEPTH=2 -e CONCURRENCY=5 \
+  -e OUT_S3_URI="s3://crawl/raw/%Y%m%d/%H%M%S/run.jsonl" \
+  crawler
+```
 
-**D. Docker Desktop integration**  
-If `docker compose` fails inside WSL:
-- In Docker Desktop → **Resources → WSL Integration**: enable your Ubuntu distro.
-- Run `wsl --list --verbose` and ensure version is `2`.
+### Verify output
 
-**E. Jupyter token confusion**  
-- Set `JUPYTER_TOKEN` in `.env` or run `docker compose exec pydev jupyter server list`.
+```bash
+docker compose exec minio sh -lc '
+  mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
+  mc ls -r local/crawl/raw | head &&
+  mc cat local/crawl/raw/$(date +%Y%m%d)/*/run.jsonl | head
+'
+```
 
-**F. Slow Spark dependency downloads**  
-- The first Spark jobs download connector JARs. For offline environments, bake them into a custom image or pre‑mount a local Ivy cache.
+### Smoketest
 
-**G. GPU not detected in containers (optional)**
-- Verify Windows `nvidia-smi` works.
-- Docker Desktop → Settings → **Resources**: enable GPU.
-- Test: `docker run --rm --gpus all nvidia/cuda:12.4.1-base nvidia-smi`.
-- Ray should then see GPUs (`ray status` resources) if your containers request them.
+```bash
+./smoketest_11_crawler.sh
+```
 
-**H. Windows Firewall prompts**
-- Allow Docker/WSL on **Private networks**. Declining may block UIs on `localhost`.
+This fetches \~5 pages and checks at least 3 lines were written.
 
 ---
 
-## 7) Day‑2 Ops
+## 7) Troubleshooting
 
-**Update images & restart**
-```bash
-docker compose pull
-docker compose up -d --remove-orphans
-docker compose ps
-```
+* **Crawler writes 0 docs** → ensure `ca-certificates` is installed in crawler image; rebuild:
 
-**Full smoketest**
-```bash
-./smoketests_all.sh
-```
-
-**Clean shutdown (remove everything, including volumes)**
-```bash
-docker compose down -v --remove-orphans
-```
-
-**Reset MinIO demo bucket (DANGER: deletes bucket)**
-```bash
-docker compose exec minio bash -lc \
-  'mc alias set local http://minio:9000 minioadmin minioadmin && mc rb --force local/smoketest-bucket && mc mb local/smoketest-bucket'
-```
+  ```bash
+  docker compose build --no-cache crawler
+  ```
+* **Container name conflicts** → `docker rm -f <name>`
+* **.env parse errors** → ensure plain `KEY=VALUE`, remove CRLF
+* **Ports in use** → `sudo lsof -i :8080` or `netstat -ano | findstr :8080`
+* **Docker Desktop integration** → enable WSL integration in settings
+* **Jupyter token confusion** → set `JUPYTER_TOKEN` in `.env`
+* **Slow Spark jar downloads** → first run only; bake jars into image if needed
+* **GPU not detected** → check `docker run --rm --gpus all nvidia/cuda:12.4.1-base nvidia-smi`
+* **Windows Firewall** → allow Docker/WSL on private networks
 
 ---
 
-## 8) CI sanity (optional but recommended)
+## 8) Day-2 Ops
 
-Add a minimal GitHub Actions workflow to validate the compose file & bash syntax on PRs:
+* **Update + restart**
+
+  ```bash
+  docker compose pull
+  docker compose up -d --remove-orphans
+  docker compose ps
+  ```
+
+* **Full smoketest**
+
+  ```bash
+  ./smoketests_all.sh
+  ```
+
+* **Clean shutdown**
+
+  ```bash
+  docker compose down -v --remove-orphans
+  ```
+
+* **Reset MinIO demo bucket (dangerous!)**
+
+  ```bash
+  docker compose exec minio bash -lc \
+    'mc alias set local http://minio:9000 minioadmin minioadmin && \
+     mc rb --force local/smoketest-bucket && \
+     mc mb local/smoketest-bucket'
+  ```
+
+---
+
+## 9) CI sanity (optional)
+
+Minimal GitHub Actions:
 
 ```yaml
 name: sanity
@@ -283,29 +307,20 @@ jobs:
       - run: bash -n smoketest_*.sh scripts/*.sh
 ```
 
-Commit:
-```bash
-git add .env.example docker-compose.yml smoketest_*.sh .github/workflows/sanity.yml
-git commit -m "WSL ML lakehouse: docs + smoketests + CI sanity"
-git push
-```
+---
+
+## 10) Security notes
+
+* Change default credentials (`.env`) if running long-term
+* Restrict host-port exposure on shared networks
+* Configure TLS/users/policies before treating MinIO as production S3
 
 ---
 
-## 9) Security notes
-
-- **Change default credentials** in `.env` for any long‑running deployment (MinIO, Airflow, etc.).
-- Restrict host‑port exposure if running on shared networks.
-- Treat MinIO as production‑grade S3 only after configuring TLS, users, and policies.
-
----
-
-## 10) Uninstall / cleanup
+## 11) Uninstall / cleanup
 
 ```bash
-# Stop and remove containers
 docker compose down -v --remove-orphans
-# (Optional) remove any stray containers by name
 for n in spark-master spark-worker kafka minio airflow airflow-db airflow-redis pydev terraform ray-head ray-worker dbt beam; do
   docker rm -f "$n" 2>/dev/null || true
 done
@@ -315,7 +330,12 @@ done
 
 ### Appendix: Tips
 
-- Prefer **LF** line endings in the repo; if needed: `git config core.autocrlf input` on Windows before cloning in WSL contexts.
-- Keep the repo under `/home/<user>/...` for best performance with Docker/WSL.
-- If you change ports in `docker-compose.yml`, also update firewall rules and any docs/scripts referencing them.
+* Always use **LF** endings (`git config core.autocrlf input`)
+* Keep repo under `/home/<user>` for Docker/WSL performance
+* Update firewall rules if ports change
 
+---
+
+✅ This now fully documents the **crawler**, **smoketest 11**, and all other services.
+
+Do you also want me to **merge this into README.md** so the README becomes a single landing page (install + usage), or keep it separate (short README, detailed install\_notes.md)?
