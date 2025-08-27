@@ -44,6 +44,41 @@ services:
     networks: [data]
     restart: "no"
 
+
+
+
+
+  # ------------------------------ Crawler -------------------------------
+
+  crawler:
+    build:
+      context: ./services/crawler
+    image: wsl-ml-stack-crawler:latest
+    container_name: crawler
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      # crawl scope (override per-run if you like)
+      SEEDS: "https://example.org"
+      ALLOWED_DOMAINS: "example.org"
+      MAX_PAGES: 100
+      MAX_DEPTH: 2
+      CONCURRENCY: 20
+      MIN_DELAY_SECONDS: 0.5
+      UA: "WSL-ML-STACK-Crawler/1.0 (+https://yourdomain)"
+      # output → MinIO
+      OUT_S3_URI: "s3://crawl/raw/%Y%m%d/run.jsonl"
+      S3_ENDPOINT_URL: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_DEFAULT_REGION: ${AWS_REGION}
+    networks: [data]
+    restart: "no"
+
+
   # ------------------------------ Kafka (KRaft) -------------------------------
   kafka:
     image: bitnami/kafka:3.7

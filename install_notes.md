@@ -2,7 +2,7 @@
 
 This document walks you from a clean Windows 11 + WSL2 setup to a running **ML Lakehouse Stack** (Ray, Spark, Kafka, MinIO, Airflow, dbt, Beam, Terraform, Jupyter/PySpark). It also includes smoke tests, common fixes, and day‑2 ops.
 
-> **Tested on:** Windows 11 + WSL2 (Ubuntu 22.04), Docker Desktop WSL backend, Compose v2.  
+> **Tested on:** Windows 11 + WSL2 (Ubuntu 22.04), Docker Desktop WSL backend, Compose v2 (GNU/Linux 6.6.87.2-microsoft-standard-WSL2 x86_64).  
 > **Default ports:** MinIO 9000/9001, Ray 8265, Spark 7077/8080/8081, Airflow 8085, Kafka 29092, Jupyter 8888.
 
 ---

@@ -1,0 +1,4 @@
+aiohttp==3.10.8
+beautifulsoup4==4.12.3
+aioboto3==13.4.0
+ujson==5.10.0

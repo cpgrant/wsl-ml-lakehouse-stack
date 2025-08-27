@@ -47,3 +47,18 @@ airflow-open:
 jupyter-open:
 	@echo "Jupyter:       http://localhost:8888  (token in .env: $$JUPYTER_TOKEN)"
 
+crawler-build:
+\tdocker compose build crawler
+
+crawler-run:
+\tdocker compose run --rm crawler
+
+crawler-run-pol:
+\tdocker compose run --rm \
+\t  -e SEEDS="https://politiken.dk" \
+\t  -e ALLOWED_DOMAINS="politiken.dk" \
+\t  -e MAX_PAGES=50 -e MAX_DEPTH=1 \
+\t  crawler
+
+minio-open:
+\t@echo "MinIO Console: http://localhost:9001  (login = $$MINIO_ROOT_USER / $$MINIO_ROOT_PASSWORD)"
