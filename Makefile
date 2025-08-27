@@ -71,9 +71,10 @@ minio-open:
 # Create a timestamped backup tarball in ../backup, preserving the repo folder name
 backup:
 	@mkdir -p ../backup
-	@repo=$$(basename "$$(pwd)"); \
-	tar -C .. -czf ../backup/$$repo-$(shell date +%Y%m%d-%H%M%S).tar.gz $$repo; \
-	echo "Backup created: ../backup/$$repo-$(shell date +%Y%m%d-%H%M%S).tar.gz"
+	@repo=$$(basename "$$(pwd)"); ts=$$(date +%Y%m%d-%H%M%S); \
+	tar -C .. -czf ../backup/$$repo-$$ts.tar.gz $$repo; \
+	echo "Backup created: ../backup/$$repo-$$ts.tar.gz"
+
 
 # Restore from a given tarball into the parent directory
 # Usage: make restore BACKUP=../backup/wsl-ml-stack-20250827-153045.tar.gz
@@ -81,3 +82,9 @@ restore:
 	@[ -n "$(BACKUP)" ] || (echo "Usage: make restore BACKUP=path/to/file.tar.gz" && exit 1)
 	@tar -xvzf $(BACKUP) -C ..
 	@echo "Restored from $(BACKUP)"    
+
+
+backup-prune:
+	@repo=$$(basename "$$(pwd)"); \
+	ls -1t ../backup/$$repo-*.tar.gz | tail -n +11 | xargs -r rm -f; \
+	echo "Pruned old backups, kept latest 10."
