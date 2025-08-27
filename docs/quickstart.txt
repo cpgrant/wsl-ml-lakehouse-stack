@@ -1,28 +1,30 @@
+````markdown
+## Quickstart (WSL2 + Docker Desktop)
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Quickstart (WSL + Docker Desktop)
-# ────────────────────────────────────────────────────────────────────────────────
-# 1) Ensure Docker Desktop is running and WSL2 integration is enabled for Ubuntu.
-# 2) Save the files above in a new folder: wsl-ml-stack/ (create airflow/dags/ dir).
-# 3) Run: `make up`  → this launches everything.
-# 4) Create a Kafka topic: `make kafka-topic`.
-# 5) Open UIs:
-#    - MinIO Console: http://localhost:9001  (login: from .env)
-#    - Jupyter (PySpark): http://localhost:8888  (token in .env)
-#    - Spark Master UI:   http://localhost:8080
-#    - Airflow Web:       http://localhost:8085  (admin/admin)
-#    - Ray Dashboard:     http://localhost:8265
-# 6) Produce a Kafka message (from host):
-#    docker compose exec -T kafka kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events <<< '{"message":"hello"}'
-# 7) Trigger the Airflow DAG `example_kafka_to_delta` (unpause & play) to stream from Kafka to Delta on MinIO.
-# 8) Explore Delta/Parquet data from Jupyter or Spark shell (see Makefile targets).
+1. Start Docker Desktop and enable WSL2 integration.  
+2. Clone this repo and `cd wsl-ml-stack/`.  
+3. Launch the stack:  
+   ```bash
+   make up
+````
 
-# Notes
-# - dbt: mount your dbt project into /workspace/dbt and run commands: 
-#     docker compose exec -it dbt bash -lc "dbt --version && dbt debug"
-#   (install appropriate adapters, e.g., dbt-postgres, dbt-snowflake, etc.)
-# - Terraform: place IaC in /workspace/infra, then: 
-#     docker compose exec -it terraform bash -lc "terraform init && terraform plan"
-# - Beam: put Python pipelines in /workspace/beam and run: 
-#     docker compose exec -it beam bash -lc "python your_pipeline.py --runner=DirectRunner"
-# - Ray: inside pydev or ray-head, `python -c 'import ray; ray.init("ray://ray-head:10001"); print(ray.cluster_resources())'`
+4. Open the UIs:
+
+   * MinIO: [http://localhost:9001](http://localhost:9001) (use `.env` login)
+   * Jupyter (PySpark): [http://localhost:8888](http://localhost:8888)
+   * Spark Master: [http://localhost:8080](http://localhost:8080)
+   * Airflow: [http://localhost:8085](http://localhost:8085) (admin/admin)
+   * Ray Dashboard: [http://localhost:8265](http://localhost:8265)
+
+5. Test the pipeline:
+
+   ```bash
+   make kafka-topic
+   docker compose exec -T kafka \
+     kafka-console-producer.sh --bootstrap-server kafka:9092 --topic events \
+     <<< '{"message":"hello"}'
+   ```
+
+6. In Airflow, unpause & trigger `example_kafka_to_delta` to stream into Delta on MinIO.
+
+```

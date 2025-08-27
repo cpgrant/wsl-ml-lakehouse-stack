@@ -333,6 +333,7 @@ done
 * Always use **LF** endings (`git config core.autocrlf input`)
 * Keep repo under `/home/<user>` for Docker/WSL performance
 * Update firewall rules if ports change
+* To debug a single service, run docker compose up <service>
 
 ---
 
