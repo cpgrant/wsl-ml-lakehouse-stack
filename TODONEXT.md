@@ -1,13 +1,17 @@
-Yesss! 🎉 You’ve got a full end-to-end pipeline: crawler → MinIO JSONL.
-Latest run: `Fetched=1 Emitted=1 -> s3://crawl/raw/20250827/run.jsonl` and you can read it back. Perfect.
+---
 
-Here’s how to level it up from “hello world” to “useful crawler”.
+# Next Steps: From “Hello World” to a Useful Crawler ✅
 
-# What to do next
+You’ve got the pipeline running end-to-end: **crawler → MinIO (S3) → JSONL**.
+Example success: `Fetched=1 Emitted=1 -> s3://crawl/raw/20250827/run.jsonl`.
 
-### 1) Emit more than 1 page
+This guide takes you from a single-page demo to a reliable, schedulable, and reviewable crawler workload.
 
-Bump limits and depth a bit:
+---
+
+## 1) Crawl More Than One Page
+
+Increase limits and depth (keep polite defaults):
 
 ```bash
 docker compose run --rm \
@@ -15,93 +19,164 @@ docker compose run --rm \
   -e ALLOWED_DOMAINS="quotes.toscrape.com" \
   -e MAX_PAGES=100 \
   -e MAX_DEPTH=3 \
-  -e CONCURRENCY=10 \
+  -e CONCURRENCY=5 \
+  -e MIN_DELAY_SECONDS=0.5 \
   crawler
 ```
 
-Then verify:
+**Verify row count** for today’s run:
 
 ```bash
 docker compose exec minio sh -lc '
   mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
-  wc -l <(mc cat local/crawl/raw/$(date +%Y%m%d)/run.jsonl)'
+  wc -l <(mc cat local/crawl/raw/$(date +%Y%m%d)/run.jsonl)
+'
 ```
 
-### 2) Make output non-overwriting (optional but recommended)
+> If `mc` isn’t present inside the `minio` container, run it as a sidecar:
+>
+> ```bash
+> docker run --rm --network wsl-ml-stack_default minio/mc:latest \
+>   alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+> ```
+>
+> Replace `wsl-ml-stack_default` with your actual Compose network (`docker network ls`).
 
-Right now you always write to `.../%Y%m%d/run.jsonl` (overwrites per-day).
-Switch to hour-partitioned files or timestamped names:
+---
 
-* Hourly partition:
+## 2) Prevent Overwrites (Recommended)
 
-  * in env: `OUT_S3_URI="s3://crawl/raw/%Y%m%d/%H/run.jsonl"`
-* Unique per run:
+Use date partitions + unique filenames so multiple runs don’t clobber each other.
 
-  * `OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_${EPOCH}.jsonl"`
-    and in `app.py`:
+### Option A — App handles uniqueness (simplest)
 
-  ```python
-  import time
-  OUT = os.getenv("OUT_S3_URI", "s3://crawl/raw/%Y%m%d/run_%s.jsonl" % int(time.time()))
-  OUT = OUT.replace("%Y%m%d", time.strftime("%Y%m%d"))
-  ```
+In `app.py`:
 
-### 3) Be polite & resilient
+```python
+import os, time
 
-Add/adjust envs when running:
+# Default path has date folder + epoch-based filename
+OUT = os.getenv(
+    "OUT_S3_URI",
+    f"s3://crawl/raw/{time.strftime('%Y%m%d')}/run_{int(time.time())}.jsonl"
+)
+# Allow %Y%m%d substitution if user passes it in env
+OUT = OUT.replace("%Y%m%d", time.strftime("%Y%m%d"))
+```
+
+Run with:
 
 ```bash
--e MIN_DELAY_SECONDS=0.5      # throttle a touch
--e CONCURRENCY=5              # reduce if small site / rate limits
+-e OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_%s.jsonl"
 ```
 
-(Your current app always emits `{url,title}`—great for debugging. Later, tighten selectors to your real content.)
+### Option B — Env-only uniqueness
 
-### 4) Wire it in as a service you can toggle
+```bash
+-e EPOCH=$(date +%s) \
+-e OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_${EPOCH}.jsonl"
+```
 
-If you want it available via `up` instead of one-off `run`, keep your crawler block **uncommented** in `docker-compose.yml` or use an overlay `docker-compose.crawler.yml`. Then:
+### Hourly partition + unique filename
+
+```bash
+-e OUT_S3_URI="s3://crawl/raw/%Y%m%d/%H/run_$(date +%M%S).jsonl"
+```
+
+---
+
+## 3) Be Polite & Resilient
+
+Tune for target sites:
+
+* **Throttle:** `-e MIN_DELAY_SECONDS=0.5` (increase if rate-limited)
+* **Concurrency:** `-e CONCURRENCY=5` (raise slowly once stable)
+* **Retries / timeouts:** expose and document these if not already
+
+---
+
+## 4) Run as a Toggleable Service
+
+If you want the crawler managed with the rest of the stack:
+
+* Keep the `crawler` service **uncommented** in `docker-compose.yml`, or
+* Use an overlay:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.crawler.yml up -d --build crawler
 docker compose logs -f crawler
 ```
 
-### 5) Schedule runs (Airflow or cron)
+---
 
-**Airflow (already in your stack):**
+## 5) Schedule Runs (Airflow or Cron)
 
-* Drop a DAG into `airflow/dags/crawl_daily.py` that runs the crawler container with today’s date injected into `OUT_S3_URI`.
-* Or simpler: a BashOperator that calls `docker compose run --rm -e ... crawler`.
+### Airflow (already in your stack)
 
-**Cron (host/WSL):**
+Create `airflow/dags/crawl_daily.py`:
+
+```python
+from airflow import DAG
+from airflow.utils.dates import days_ago
+from airflow.operators.bash import BashOperator
+
+with DAG(
+    dag_id="crawl_daily",
+    start_date=days_ago(1),
+    schedule_interval="0 2 * * *",
+    catchup=False,
+) as dag:
+    run_crawler = BashOperator(
+        task_id="run_crawler",
+        bash_command="""
+        cd /workspace && \
+        docker compose run --rm \
+          -e SEEDS='https://yourdomain' \
+          -e ALLOWED_DOMAINS='yourdomain' \
+          -e MAX_PAGES=500 -e MAX_DEPTH=3 \
+          -e CONCURRENCY=10 -e MIN_DELAY_SECONDS=0.5 \
+          -e OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_$(date +\\%H\\%M\\%S).jsonl" \
+          crawler
+        """
+    )
+```
+
+### Cron (host/WSL)
 
 ```bash
 0 2 * * * cd ~/dockerprojects/wsl-ml-stack && \
   docker compose run --rm \
     -e SEEDS="https://yourdomain" \
     -e ALLOWED_DOMAINS="yourdomain" \
-    -e MAX_PAGES=500 -e MAX_DEPTH=3 -e CONCURRENCY=10 \
-    -e OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_$(date +\%H%M%S).jsonl" \
+    -e MAX_PAGES=500 -e MAX_DEPTH=3 -e CONCURRENCY=10 -e MIN_DELAY_SECONDS=0.5 \
+    -e OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_$(date +\%H\%M\%S).jsonl" \
     crawler >> crawl.log 2>&1
 ```
 
-### 6) Secrets hygiene
+---
 
-You already moved bucket naming to `.env`. Also ensure:
+## 6) Secrets & Hygiene
 
-* No AWS creds in Dockerfile (you removed them ✅).
-* `.env` stays local (don’t commit). Use `env_file:` or CI secrets if needed.
+* Keep credentials in `.env` (never in Dockerfile or source)
+* Use `env_file:` in Compose, or CI/CD secrets in pipelines
+* Ensure `.env` is **.gitignored**
 
-### 7) Handy debug commands
+---
+
+## 7) Handy Debug Commands
+
+**Tail latest rows:**
 
 ```bash
-# tail the latest file
 docker compose exec minio sh -lc '
   mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
   mc cat local/crawl/raw/$(date +%Y%m%d)/run.jsonl | head -n 20
 '
+```
 
-# list all runs for today
+**List today’s outputs:**
+
+```bash
 docker compose exec minio sh -lc '
   mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
   mc ls -r local/crawl/raw/$(date +%Y%m%d) | head
@@ -110,4 +185,61 @@ docker compose exec minio sh -lc '
 
 ---
 
-If you share your **real target** (domain + what you want to extract), I can tweak the parser to emit richer fields (e.g., title, description, links, metadata) and suggest safe concurrency & politeness settings.
+## 8) Makefile Targets (Nice-to-Have)
+
+Add these to your `Makefile` to reduce copy-paste:
+
+```makefile
+crawl-demo:
+	docker compose run --rm \
+	  -e SEEDS="https://quotes.toscrape.com" \
+	  -e ALLOWED_DOMAINS="quotes.toscrape.com" \
+	  -e MAX_PAGES=100 -e MAX_DEPTH=3 \
+	  -e CONCURRENCY=5 -e MIN_DELAY_SECONDS=0.5 \
+	  -e OUT_S3_URI="s3://crawl/raw/%Y%m%d/run_$(shell date +%s).jsonl" \
+	  crawler
+
+s3-head:
+	docker compose exec minio sh -lc '\
+	  mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && \
+	  mc cat local/crawl/raw/$$(date +%Y%m%d)/run.jsonl | head -n 20 \
+	'
+
+s3-ls-today:
+	docker compose exec minio sh -lc '\
+	  mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && \
+	  mc ls -r local/crawl/raw/$$(date +%Y%m%d) | head \
+	'
+```
+
+---
+
+## 9) Enhance the Payload
+
+Right now you emit `{url, title}` — great for smoke tests. Next:
+
+* Add `description`, `links[]`, `canonical_url`, `meta.*`, `lang`, `fetch_time`
+* Normalize URLs and deduplicate per session (and across runs if needed)
+* Add per-run manifest (counts, duration, error summary)
+
+---
+
+## 10) Quality & Safety
+
+* **Robots.txt** awareness and site TOS compliance
+* Backoff on 429/5xx; jitter on retries
+* Content-type filtering (HTML only unless configured)
+* Hash content to avoid duplicates
+* Structured logs + metrics (e.g., emitted rows, crawl rate, error rate)
+
+---
+
+## 11) Where to Go Next
+
+* **Airflow lineage:** push run metadata to a Delta table (for dashboards)
+* **Delta table schema:** evolve from `{url,title}` to rich schema
+* **Downstream:** feed JSONL/Delta to Spark jobs (clean, dedupe, split), then to Ray for training/finetuning steps
+
+---
+
+Specify real target domain and desired fields and tailor selectors and defaults (depth, concurrency, politeness) for site and create a matching schema.
