@@ -1,6 +1,10 @@
 # Project: wsl-ml-stack
 # Usage: put these files in a new folder (e.g., wsl-ml-stack/) and run `make up`
 
+.PHONY: up ps logs stop down restart kafka-topic spark-shell ray-open airflow-open jupyter-open \
+        crawler-build crawler-run crawler-run-pol minio-open backup restore
+
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Makefile
@@ -48,17 +52,32 @@ jupyter-open:
 	@echo "Jupyter:       http://localhost:8888  (token in .env: $$JUPYTER_TOKEN)"
 
 crawler-build:
-\tdocker compose build crawler
+	docker compose build crawler
 
 crawler-run:
-\tdocker compose run --rm crawler
+	docker compose run --rm crawler
 
 crawler-run-pol:
-\tdocker compose run --rm \
-\t  -e SEEDS="https://politiken.dk" \
-\t  -e ALLOWED_DOMAINS="politiken.dk" \
-\t  -e MAX_PAGES=50 -e MAX_DEPTH=1 \
-\t  crawler
+	docker compose run --rm \
+	  -e SEEDS="https://politiken.dk" \
+	  -e ALLOWED_DOMAINS="politiken.dk" \
+	  -e MAX_PAGES=50 -e MAX_DEPTH=1 \
+	  crawler
 
 minio-open:
-\t@echo "MinIO Console: http://localhost:9001  (login = $$MINIO_ROOT_USER / $$MINIO_ROOT_PASSWORD)"
+	@echo "MinIO Console: http://localhost:9001  (login = $$MINIO_ROOT_USER / $$MINIO_ROOT_PASSWORD)"
+
+
+# Create a timestamped backup tarball in ../backup, preserving the repo folder name
+backup:
+	@mkdir -p ../backup
+	@repo=$$(basename "$$(pwd)"); \
+	tar -C .. -czf ../backup/$$repo-$(shell date +%Y%m%d-%H%M%S).tar.gz $$repo; \
+	echo "Backup created: ../backup/$$repo-$(shell date +%Y%m%d-%H%M%S).tar.gz"
+
+# Restore from a given tarball into the parent directory
+# Usage: make restore BACKUP=../backup/wsl-ml-stack-20250827-153045.tar.gz
+restore:
+	@[ -n "$(BACKUP)" ] || (echo "Usage: make restore BACKUP=path/to/file.tar.gz" && exit 1)
+	@tar -xvzf $(BACKUP) -C ..
+	@echo "Restored from $(BACKUP)"    
