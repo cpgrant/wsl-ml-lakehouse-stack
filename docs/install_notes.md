@@ -338,4 +338,3 @@ done
 
 ✅ This now fully documents the **crawler**, **smoketest 11**, and all other services.
 
-Do you also want me to **merge this into README.md** so the README becomes a single landing page (install + usage), or keep it separate (short README, detailed install\_notes.md)?
