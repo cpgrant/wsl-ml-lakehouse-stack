@@ -88,3 +88,14 @@ backup-prune:
 	@repo=$$(basename "$$(pwd)"); \
 	ls -1t ../backup/$$repo-*.tar.gz | tail -n +11 | xargs -r rm -f; \
 	echo "Pruned old backups, kept latest 10."
+
+crawl-deepaimind:
+	@docker compose run --rm \
+	  -e SEEDS="https://www.deepaimind.com/" \
+	  -e ALLOWED_DOMAINS="deepaimind.com" \
+	  -e MAX_DEPTH=3 -e MAX_PAGES=500 \
+	  -e CONCURRENCY=10 -e MIN_DELAY_SECONDS=0.5 \
+	  -e INCLUDE_FILETYPES="html,htm,pdf,docx" \
+	  -e OUT_S3_URI="s3://crawl/raw/%Y%m%d/deepaimind/run_$$(date +%s).jsonl" \
+	  -e BIN_S3_PREFIX="s3://crawl/bin/%Y%m%d/deepaimind" \
+	  crawler python crawl_deepaimind.py
